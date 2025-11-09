@@ -142,26 +142,36 @@ Vscode使用命名空间唯一标识每个扩展，防止扩展之间的冲突�
 Zip文件大致结构如下：
 
 ```mermaid
-flowchart LR
+flowchart
     subgraph Zip[ZIP文件]
-        中央目录结束记录
+        direction LR
+        subgraph file_data_seg[文件数据区]
+            direction TB
+            file_1[文件1: LFH + 数据]
+            file_2[文件2: LFH + 数据]
+            file_3[文件3: LFH + 数据]
+            file_n[文件n: LFH + 数据]we
+        end
+
         subgraph central_director_seg[中央目录区]
+            direction TB
             cd_1[CD条目1]
             cd_2[CD条目2]
             cd_3[CD条目3]
             cd_4[CD条目n]
         end
-        subgraph file_data_seg[文件数据区]
-            file_1[文件1: LFH + 数据]
-            file_2[文件2: LFH + 数据]
-            file_3[文件3: LFH + 数据]
-            file_n[文件n: LFH + 数据]
+
+        subgraph end_of_central_dir_seg[中央目录结束记录]
+            direction TB
+            签名0x06054B50
+            目录条目数
+            中央目录区大小
+            中央目录区偏移量
         end
-        cd_1 --> file_1
-        cd_2 --> file_2
-        cd_3 --> file_3
-        cd_4 --> file_n
+
+
     end
+
 ```
 
 ##### LFH：Local File Header（本地文件头）
@@ -230,5 +240,20 @@ CDH与LFH的区别在于：CDH提供了zip文件的完整结构信息，为zip�
 | 额外字段       | 支持           | 支持                     | 两者都支持，但内容可能不同   |
 
 ##### EOCDR：End of Central Directory Record（中央目录结束记录）
+
+```c
+// 中央目录结束记录结构
+typedef struct {
+    uint32_t signature;            // 0x06054B50
+    uint16_t disk_number;          // 磁盘号
+    uint16_t disk_dir_start;       // 中央目录起始磁盘号
+    uint16_t disk_entries;         // 本磁盘中央目录项数
+    uint16_t total_entries;        // 总中央目录项数
+    uint32_t dir_size;             // 中央目录大小
+    uint32_t dir_offset;           // 中央目录偏移
+    uint16_t comment_length;       // 注释长度
+    char *comment;                 // 注释内容
+} EndCentralDirRecord;
+```
 
 ### Questions
