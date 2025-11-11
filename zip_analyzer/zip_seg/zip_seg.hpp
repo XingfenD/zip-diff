@@ -104,8 +104,12 @@ public:
     bool readFromFile(std::ifstream& file) override;
     /* return the position of EndOfCentralDirectoryRecord signature found from end of file, or -1 if not found */
     static std::streampos findFromEnd(std::ifstream& file);
+
+    /* get methods */
+    uint32_t getSignature() const { return signature; }
     std::streampos getCentralDirOffset() const { return central_dir_offset; }
     uint16_t getCentralDirRecordCount() const { return central_dir_record_count; }
+
     ~EndOfCentralDirectoryRecord() = default;
 
 private:
@@ -122,10 +126,10 @@ private:
 
 class ZipHandler {
 public:
-    ZipHandler(std::ifstream& file);
+    ZipHandler(std::ifstream& file, std::string parse_mode);
     ~ZipHandler() = default;
-    bool parse(std::string mode);
-    bool parseStream();
+    bool parse();
+    uint16_t parseStream();
     bool parseStandard();
     void print() const;
     void printLocalFileHeaders() const;
@@ -134,9 +138,11 @@ public:
 
 private:
     std::ifstream file;
+    std::string parse_mode;
     std::vector<LocalFileHeader> local_file_headers;
     std::vector<CentralDirectoryHeader> central_directory_headers;
     EndOfCentralDirectoryRecord end_of_central_directory_record;
+    uint16_t local_file_header_count;
 };
 
 #endif /* ZIP_SEG_HPP */

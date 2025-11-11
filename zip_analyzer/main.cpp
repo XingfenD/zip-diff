@@ -44,8 +44,8 @@ int main(int argc, char *argv[]) {
     }
 
      /* parse the file content */
-    ZipHandler zip_handler(file);
-    if (!zip_handler.parse(mode)) {
+    ZipHandler zip_handler(file, mode);
+    if (!zip_handler.parse()) {
         std::cerr << "Error: Failed to parse ZIP file" << std::endl;
         return 1;
     }

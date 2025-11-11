@@ -4,13 +4,17 @@
 #include <iostream>
 #include <stdexcept>
 
-ZipHandler::ZipHandler(std::ifstream& file) : file(std::move(file)) {}
+ZipHandler::ZipHandler(std::ifstream& file, std::string parse_mode) : file(std::move(file)), parse_mode(parse_mode) {}
 
-bool ZipHandler::parse(std::string mode) {
-    if (mode == "standard") {
+bool ZipHandler::parse() {
+    if (parse_mode == "standard") {
         return parseStandard();
-    } else if (mode == "stream") {
-        return parseStream();
+    } else if (parse_mode == "stream") {
+        uint16_t success_count = parseStream();
+
+        local_file_header_count = success_count;
+
+        return success_count > 0;
     } else {
         return false;
     }
@@ -56,11 +60,39 @@ bool ZipHandler::parseStandard() {
     return true;
 }
 
-bool ZipHandler::parseStream() {
-    return true;
+uint16_t ZipHandler::parseStream() {
+    if (!file.is_open() || !file.good()) {
+        return 0;
+    }
+    /* start from the first byte of the file */
+    file.seekg(0);
+
+    uint16_t success_count = 0;
+    /* parse only local file headers */
+    while (true) {
+        /* create a local file header object */
+        LocalFileHeader local_header;
+
+        /* try to read local file header */
+        if (!local_header.readFromFile(file)) {
+            /* parse failed, return false */
+            return success_count;
+        }
+
+        /* read success, increment success count */
+        success_count++;
+
+        /* read success, move data to vector */
+        local_file_headers.push_back(std::move(local_header));
+    }
+
+    return success_count;
 }
 
 void ZipHandler::print() const {
+    if (parse_mode == "stream") {
+        std::cout << "Local File Header Count: " << local_file_header_count << std::endl;
+    }
     printLocalFileHeaders();
     printCentralDirectoryHeaders();
     printEndOfCentralDirectoryRecord();
@@ -78,7 +110,9 @@ void ZipHandler::printCentralDirectoryHeaders() const {
 }
 
 void ZipHandler::printEndOfCentralDirectoryRecord() const {
-    end_of_central_directory_record.print();
+    if (end_of_central_directory_record.getSignature() == END_OF_CENTRAL_DIRECTORY_SIG) {
+        end_of_central_directory_record.print();
+    }
 }
 
 
