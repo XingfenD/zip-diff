@@ -143,10 +143,10 @@ bool LocalFileHeader::readFromFile(std::ifstream& file) {
         return false;
     }
 
-    // 读取固定大小的字段
+    /* read signature */
     signature = readLittleEndian<uint32_t>(file);
 
-    // 检查签名是否正确
+    /* check signature */
     if (signature != LOCAL_FILE_HEADER_SIG) {
         return false;
     }
@@ -162,16 +162,22 @@ bool LocalFileHeader::readFromFile(std::ifstream& file) {
     filename_length = readLittleEndian<uint16_t>(file);
     extra_field_length = readLittleEndian<uint16_t>(file);
 
-    // 读取文件名
+    /* read filename */
     if (filename_length > 0) {
         filename = std::string(filename_length, '\0');
         file.read(&filename[0], filename_length);
     }
 
-    // 读取扩展区数据
+    /* read extra field */
     if (extra_field_length > 0) {
         extra_field = std::make_unique<uint8_t[]>(extra_field_length);
         file.read(reinterpret_cast<char*>(extra_field.get()), extra_field_length);
+    }
+
+    /* read file data */
+    if (compressed_size > 0) {
+        file_data = std::make_unique<uint8_t[]>(compressed_size);
+        file.read(reinterpret_cast<char*>(file_data.get()), compressed_size);
     }
 
     return !file.fail();
@@ -200,8 +206,6 @@ void CentralDirectoryHeader::print() const {
     if (filename_length > 0) {
         std::cout << "  Filename: " << filename << std::endl;
     }
-
-    // 注意：通常不直接打印扩展区数据，因为它是二进制数据
 }
 
 bool CentralDirectoryHeader::readFromFile(std::ifstream& file) {
@@ -209,10 +213,10 @@ bool CentralDirectoryHeader::readFromFile(std::ifstream& file) {
         return false;
     }
 
-    // 读取固定大小的字段
+    /* read signature */
     signature = readLittleEndian<uint32_t>(file);
 
-    // 检查签名是否正确
+    /* check signature */
     if (signature != CENTRAL_DIRECTORY_HEADER_SIG) {
         return false;
     }
@@ -233,13 +237,14 @@ bool CentralDirectoryHeader::readFromFile(std::ifstream& file) {
     internal_attr = readLittleEndian<uint16_t>(file);
     external_attr = readLittleEndian<uint32_t>(file);
     local_header_offset = readLittleEndian<uint32_t>(file);
-    // 读取文件名
+
+    /* read filename */
     if (filename_length > 0) {
         filename = std::string(filename_length, '\0');
         file.read(&filename[0], filename_length);
     }
 
-    // 读取扩展区数据
+    /* read extra field */
     if (extra_field_length > 0) {
         extra_field = std::make_unique<uint8_t[]>(extra_field_length);
         file.read(reinterpret_cast<char*>(extra_field.get()), extra_field_length);
@@ -269,10 +274,10 @@ bool EndOfCentralDirectoryRecord::readFromFile(std::ifstream& file) {
         return false;
     }
 
-    // 读取固定大小的字段
+    /* read signature */
     signature = readLittleEndian<uint32_t>(file);
 
-    // 检查签名是否正确
+    /* check signature */
     if (signature != END_OF_CENTRAL_DIRECTORY_SIG) {
         return false;
     }
@@ -285,7 +290,7 @@ bool EndOfCentralDirectoryRecord::readFromFile(std::ifstream& file) {
     central_dir_offset = readLittleEndian<uint32_t>(file);
     zip_file_comment_length = readLittleEndian<uint16_t>(file);
 
-    // 读取zip文件注释
+    /* read zip file comment */
     if (zip_file_comment_length > 0) {
         zip_file_comment = std::string(zip_file_comment_length, '\0');
         file.read(&zip_file_comment[0], zip_file_comment_length);
@@ -296,22 +301,23 @@ bool EndOfCentralDirectoryRecord::readFromFile(std::ifstream& file) {
 
 std::streampos EndOfCentralDirectoryRecord::findFromEnd(std::ifstream& file) {
     if (!file.is_open() || !file.good()) {
-        return -1; // 返回无效位置
+        return -1;
     }
 
-    // 保存当前文件位置
+    /* save current file position */
     std::streampos original_pos = file.tellg();
 
-    // 获取文件大小
+    /* get file size */
     file.seekg(0, std::ios::end);
     std::streampos file_size = file.tellg();
 
-    // EndOfCentralDirectoryRecord最小大小为22字节（不包括注释）
-    // 最大注释长度为65535字节，所以我们从文件末尾开始向前搜索
-    // 但要确保我们不会搜索超过文件的前半部分（避免过度搜索）
+    /* EndOfCentralDirectoryRecord minimum size is 22 bytes (excluding comment) */
+    // Maximum comment length is 65535 bytes, so we search from the end of the file
+    // But we ensure we don't search beyond the first half of the file (to avoid over-searching)
     const size_t max_search_size = std::min(static_cast<size_t>(file_size) / 2, static_cast<size_t>(65535 + 22));
 
-    // 从文件末尾向前搜索，但留出EndOfCentralDirectoryRecord的最小大小
+    /* search for EndOfCentralDirectoryRecord signature from end of file */
+    /* Leave minimum size of EndOfCentralDirectoryRecord (22 bytes) at the end of the search area */
     std::streampos search_start_pos = file_size - static_cast<std::streampos>(max_search_size);
     if (search_start_pos < 0) {
         search_start_pos = 0;
@@ -319,18 +325,18 @@ std::streampos EndOfCentralDirectoryRecord::findFromEnd(std::ifstream& file) {
 
     file.seekg(search_start_pos, std::ios::beg);
 
-    // 读取搜索区域的内容到缓冲区
+    /* read search area content into buffer */
     size_t buffer_size = static_cast<size_t>(file_size - search_start_pos);
     std::vector<char> buffer(buffer_size);
     file.read(buffer.data(), buffer_size);
 
     if (file.fail()) {
-        // 恢复文件位置
+        /* recover file position */
         file.seekg(original_pos, std::ios::beg);
-        return -1; // 返回无效位置
+        return -1;
     }
 
-    // 从缓冲区末尾向前搜索签名
+    /* search for EndOfCentralDirectoryRecord signature from end of buffer */
     const uint32_t signature = END_OF_CENTRAL_DIRECTORY_SIG;
     const char* signature_bytes = reinterpret_cast<const char*>(&signature);
 
@@ -344,28 +350,28 @@ std::streampos EndOfCentralDirectoryRecord::findFromEnd(std::ifstream& file) {
         }
 
         if (signature_match) {
-            // 找到签名，计算其在文件中的绝对位置
+            /* found signature, calculate its absolute position in the file */
             std::streampos record_pos = search_start_pos + static_cast<std::streampos>(i);
 
-            // 移动文件指针到记录开始位置
+            /* move file pointer to the start of the record */
             file.seekg(record_pos, std::ios::beg);
 
-            // 验证这是一个有效的记录
-            // 移动文件指针到记录开始位置并读取签名进行确认
+            /* verify this is a valid record */
+            /* move file pointer to the start of the record and read signature to confirm */
             file.seekg(record_pos, std::ios::beg);
             uint32_t temp_signature = readLittleEndian<uint32_t>(file);
 
-            // 恢复文件位置
+            /* recover file position */
             file.seekg(original_pos, std::ios::beg);
 
-            // 如果签名有效，返回找到的位置
+            /* if signature is valid, return the found position */
             if (temp_signature == END_OF_CENTRAL_DIRECTORY_SIG) {
                 return record_pos;
             }
         }
     }
 
-    // 未找到有效签名，恢复文件位置
+    /* if no valid signature is found, recover file position */
     file.seekg(original_pos, std::ios::beg);
     return -1; // 返回无效位置
 }

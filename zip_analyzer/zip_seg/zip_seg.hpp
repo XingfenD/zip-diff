@@ -49,6 +49,7 @@ private:
     uint16_t extra_field_length;
     std::string filename;
     std::unique_ptr<uint8_t[]> extra_field;
+    std::unique_ptr<uint8_t[]> file_data;
 };
 
 class CentralDirectoryHeader: public ZipSeg {
