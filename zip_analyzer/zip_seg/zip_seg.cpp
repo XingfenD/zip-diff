@@ -131,8 +131,6 @@ void LocalFileHeader::print() const {
     if (filename_length > 0) {
         std::cout << "  Filename: " << filename << std::endl;
     }
-
-    /* will not print extra field */
 }
 
 bool LocalFileHeader::readFromFile(std::ifstream& file) {

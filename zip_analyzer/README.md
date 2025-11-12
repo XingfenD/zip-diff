@@ -2,7 +2,7 @@
 
 ## Introduction
 
-A tool to analyze ZIP files. The tool can parse the ZIP file in standard mode or stream mode, and print the LFHs, CDHs and EOCDH.
+A tool to analyze ZIP files. The tool can parse the ZIP file in standard mode or stream mode, and print the LFHs, CDHs and EOCDR.
 
 ## Compilation
 

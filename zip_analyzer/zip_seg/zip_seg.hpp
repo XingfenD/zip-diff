@@ -49,6 +49,8 @@ private:
     uint16_t extra_field_length;
     std::string filename;
     std::unique_ptr<uint8_t[]> extra_field;
+
+    /* the file data is not belong to local file header, but defined in LocalFileHeader for convenience */
     std::unique_ptr<uint8_t[]> file_data;
 };
 

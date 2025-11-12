@@ -107,7 +107,7 @@ sequenceDiagram
 
 ![zip_demo_hacked文件结构](./pic/zip_demo_hacked文件结构.png)
 
-使用解析器解析`zip_demo_hacked.zip`文件，在标准解析模式下，解析器忽略掉了仅在LFH中存在的`hacked.txt`文件；而在流式解析模式下，解析器能够成功解析出`hacked.txt`文件的信息。
+使用`zip_analyze`解析`zip_demo_hacked.zip`文件，在标准解析模式下，`zip_analyze`忽略掉了仅在LFH中存在的`hacked.txt`文件；而在流式解析模式下，`zip_analyze`能够成功解析出`hacked.txt`文件的信息。
 
 ### Zip文件具体分析
 
@@ -222,9 +222,9 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant 解析器
-    participant EOCD AS End of Central Directory
+    participant EOCDR AS End of Central Directory
     participant ZIP64Locator AS ZIP64 Locator
-    participant ZIP64EOCD AS ZIP64 End of Central Directory
+    participant ZIP64EOCDR AS ZIP64 End of Central Directory
     participant 中央目录 AS Central Directory
     participant CDH AS Central Directory Header
     participant LFH AS Local File Header
@@ -232,14 +232,14 @@ sequenceDiagram
     participant DD AS Data Descriptor
 
     Note over 解析器: 初始化阶段
-    解析器->>EOCD: 1. 读取End of Central Directory
-    EOCD->>解析器: 返回EOCD数据
+    解析器->>EOCDR: 1. 读取End of Central Directory Record
+    EOCDR->>解析器: 返回EOCDR数据
     解析器->>解析器: 2. 检查ZIP64格式标志
     alt 检测到ZIP64标志
         解析器->>ZIP64Locator: 3. 读取ZIP64 Locator
-        ZIP64Locator->>解析器: 返回ZIP64 EOCD位置
-        解析器->>ZIP64EOCD: 4. 读取ZIP64 EOCD
-        ZIP64EOCD->>解析器: 返回完整中央目录信息
+        ZIP64Locator->>解析器: 返回ZIP64 EOCDR位置
+        解析器->>ZIP64EOCDR: 4. 读取ZIP64 EOCDR
+        ZIP64EOCDR->>解析器: 返回完整中央目录信息
     end
     解析器->>中央目录: 5. 定位中央目录
     解析器->>解析器: 6. 初始化文件计数器 = 0
@@ -283,4 +283,5 @@ sequenceDiagram
 
 ## Questions
 
-- 考虑加密的情况下，zip文件结构会复杂很多，在后续工作中需要偏向考虑zip被加密的case嘛？
+- 考虑加密的情况下，Zip文件结构会复杂很多，在后续工作中需要偏向考虑zip被加密的case嘛？
+- 标准解析模式下，从文件尾部搜索EOCDR时，如果EOCDR中的extra field中如果出现一个完整的EOCDR，解析器会如何处理？
