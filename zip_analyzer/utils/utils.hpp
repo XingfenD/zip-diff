@@ -5,7 +5,7 @@
 #include <memory>
 #include <fstream>
 
-// 读取指定大小的数据并处理小端字节序的通用函数
+/* read specified size of data and convert it to little endian */
 template<typename T>
 inline T readLittleEndian(std::ifstream& file) {
     T value;

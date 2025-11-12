@@ -307,8 +307,8 @@ std::streampos EndOfCentralDirectoryRecord::findFromEnd(std::ifstream& file) {
     std::streampos file_size = file.tellg();
 
     /* EndOfCentralDirectoryRecord minimum size is 22 bytes (excluding comment) */
-    // Maximum comment length is 65535 bytes, so we search from the end of the file
-    // But we ensure we don't search beyond the first half of the file (to avoid over-searching)
+    /* Maximum comment length is 65535 bytes, so we search from the end of the file */
+    /* But we ensure we don't search beyond the first half of the file (to avoid over-searching) */
     const size_t max_search_size = std::min(static_cast<size_t>(file_size) / 2, static_cast<size_t>(65535 + 22));
 
     /* search for EndOfCentralDirectoryRecord signature from end of file */
