@@ -6,7 +6,9 @@
 
 ### Detailed
 
-1.
+1. Zip基础结构，及其解析流程
+2. 标准解析模式与流式解析模式的区别
+3. Zip进阶结构：加密、Zip66
 
 ### Deliverables
 
@@ -214,6 +216,70 @@ sequenceDiagram
 ```
 
 中央目录头与本地文件头之间存在许多冗余字段，原则上相对应的一对中央目录头和本地文件头，表示含义相同的字段值应该是相同的。
+
+### Zip64解析流程
+
+```mermaid
+sequenceDiagram
+    participant 解析器
+    participant EOCD AS End of Central Directory
+    participant ZIP64Locator AS ZIP64 Locator
+    participant ZIP64EOCD AS ZIP64 End of Central Directory
+    participant 中央目录 AS Central Directory
+    participant CDH AS Central Directory Header
+    participant LFH AS Local File Header
+    participant 文件数据 AS File Data
+    participant DD AS Data Descriptor
+
+    Note over 解析器: 初始化阶段
+    解析器->>EOCD: 1. 读取End of Central Directory
+    EOCD->>解析器: 返回EOCD数据
+    解析器->>解析器: 2. 检查ZIP64格式标志
+    alt 检测到ZIP64标志
+        解析器->>ZIP64Locator: 3. 读取ZIP64 Locator
+        ZIP64Locator->>解析器: 返回ZIP64 EOCD位置
+        解析器->>ZIP64EOCD: 4. 读取ZIP64 EOCD
+        ZIP64EOCD->>解析器: 返回完整中央目录信息
+    end
+    解析器->>中央目录: 5. 定位中央目录
+    解析器->>解析器: 6. 初始化文件计数器 = 0
+
+    Note over 解析器: 循环处理所有文件
+    loop 对于每个文件条目
+        解析器->>解析器: 7. 文件计数器 += 1
+        解析器->>CDH: 8. 读取Central Directory Header
+        CDH->>解析器: 返回文件元数据
+        解析器->>解析器: 9. 检查是否需要ZIP64扩展
+        alt 需要ZIP64扩展
+            解析器->>CDH: 10. 提取ZIP64扩展信息
+            CDH->>解析器: 返回8字节大小和偏移量
+        end
+
+        Note over 解析器: 处理Local File Header
+        解析器->>LFH: 11. 根据CDH定位LFH
+        LFH->>解析器: 返回Local File Header数据
+        解析器->>解析器: 12. 验证LFH与CDH一致性
+
+        Note over 解析器: 处理文件数据
+        解析器->>文件数据: 13. 读取压缩文件数据
+        文件数据->>解析器: 返回文件数据
+        解析器->>解析器: 14. 解压/解密文件数据
+
+        alt 存在Data Descriptor
+            解析器->>DD: 15. 读取Data Descriptor
+            DD->>解析器: 返回实际CRC和大小
+            解析器->>解析器: 16. 验证数据完整性
+        end
+
+        解析器->>解析器: 17. 存储文件信息
+        解析器->>解析器: 18. 检查是否还有更多文件
+    end
+
+    Note over 解析器: 完成阶段
+    解析器->>解析器: 19. 生成完整文件列表
+    解析器->>解析器: 20. 验证所有文件完整性
+    解析器->>解析器: 21. 返回解析结果
+```
 
 ## Questions
 
