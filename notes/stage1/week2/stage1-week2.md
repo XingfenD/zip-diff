@@ -8,7 +8,7 @@
 
 1. Zip基础结构，及其解析流程
 2. 标准解析模式与流式解析模式的区别
-3. Zip进阶结构：加密、Zip66
+3. Zip进阶结构：加密、Zip64
 
 ### Deliverables
 
@@ -111,7 +111,7 @@ sequenceDiagram
 
 ### Zip文件具体分析
 
-根据[官方文档](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT), Zip文件的结构如下:
+根据[官方文档](https://pkware.cachefly.net/webdocs/casestudies/ParserNOTE.TXT), Zip文件的结构如下:
 
 ```plaintext
 [local file header 1]
@@ -167,7 +167,31 @@ sequenceDiagram
 
 #### 加密头 - Encryption Header
 
-是否存在: 仅当`general_bit_flag`的第0位为1时，才存在加密头。加密头的具体长度和结构由具体的加密算法决定。
+是否存在: 仅当`general_bit_flag`的第0位为1时，才存在加密头。
+
+加密头的具体长度与结构由`general_bit_flag`的第6位确定：
+
+- 当第六位为0时，加密头格式为传统PKWARE加密格式，长度为12字节；
+- 当第六位为1时，加密头格式强加密格式，长度为可变，至少30字节。
+
+```plaintext
+IVSize    2 bytes  - 初始化向量大小
+IVData    IVSize   - 初始化向量数据
+Size      4 bytes  - 剩余解密头数据大小
+Format    2 bytes  - 格式定义 (当前必须为3)
+AlgID     2 bytes  - 加密算法标识符
+Bitlen    2 bytes  - 密钥长度 (32-448 bits)
+Flags     2 bytes  - 处理标志
+ErdSize   2 bytes  - 加密随机数据大小
+ErdData   ErdSize  - 加密的随机数据
+Reserved1 4 bytes  - 证书处理保留字段
+Reserved2 (var)    - 证书处理保留字段
+VSize     2 bytes  - 密码验证数据大小
+VData     VSize-4  - 密码验证数据 (加密)
+VCRC32    4 bytes  - 密码验证数据的CRC32 (加密)
+```
+
+校验密码是否正确即是通过加密头内的部分字段进行的。
 
 #### 数据描述符 - Data Descriptor
 
@@ -184,11 +208,28 @@ sequenceDiagram
 
 #### 归档解密头 - Archive Decryption Header
 
-暂略。
+结构与加密头相同，不同的是加密头是在每个文件数据之前，而归档解密头是在所有文件数据之后。归档解密头的位置由Zip64 End of Central Directory Record中的Start of Central Directory字段指定。
+
+使用归档解密头可以支持加密整个中央目录结构，保护所有文件的元数据。
+
+只在Zip64格式下才会存在归档解密头。
+
+归档解密头的结构与Encryption Header完全相同。
 
 #### 归档额外数据记录 - Archive Extra Data Record
 
-暂略。
+Archive Extra Data Record 主要用于存储与中央目录加密相关的额外信息，特别是：
+
+- 数字证书信息：存储 PKCS#7 证书存储、X.509 证书 ID 和签名等
+- 加密相关数据：存储加密接收者证书列表等
+
+其结构定义如下：
+
+```cpp
+    uint32_t signature;             /* 0x08074b50 */
+    uint32_t extra_field_length;
+    std::unique_ptr<uint8_t[]> extra_field;
+```
 
 #### 中央目录头 - Central Directory Header
 
@@ -217,11 +258,13 @@ sequenceDiagram
 
 中央目录头与本地文件头之间存在许多冗余字段，原则上相对应的一对中央目录头和本地文件头，表示含义相同的字段值应该是相同的。
 
-### Zip64解析流程
+### 相关流程
+
+#### Zip64解析流程
 
 ```mermaid
 sequenceDiagram
-    participant 解析器
+    participant Parser AS 解析器
     participant EOCDR AS End of Central Directory
     participant ZIP64Locator AS ZIP64 Locator
     participant ZIP64EOCDR AS ZIP64 End of Central Directory
@@ -231,57 +274,253 @@ sequenceDiagram
     participant 文件数据 AS File Data
     participant DD AS Data Descriptor
 
-    Note over 解析器: 初始化阶段
-    解析器->>EOCDR: 1. 读取End of Central Directory Record
-    EOCDR->>解析器: 返回EOCDR数据
-    解析器->>解析器: 2. 检查ZIP64格式标志
+    Note over Parser: 初始化阶段
+    Parser->>EOCDR: 1. 读取End of Central Directory Record
+    EOCDR->>Parser: 返回EOCDR数据
+    Parser->>Parser: 2. 检查ZIP64格式标志
     alt 检测到ZIP64标志
-        解析器->>ZIP64Locator: 3. 读取ZIP64 Locator
-        ZIP64Locator->>解析器: 返回ZIP64 EOCDR位置
-        解析器->>ZIP64EOCDR: 4. 读取ZIP64 EOCDR
-        ZIP64EOCDR->>解析器: 返回完整中央目录信息
+        Parser->>ZIP64Locator: 3. 读取ZIP64 Locator
+        ZIP64Locator->>Parser: 返回ZIP64 EOCDR位置
+        Parser->>ZIP64EOCDR: 4. 读取ZIP64 EOCDR
+        ZIP64EOCDR->>Parser: 返回完整中央目录信息
     end
-    解析器->>中央目录: 5. 定位中央目录
-    解析器->>解析器: 6. 初始化文件计数器 = 0
+    Parser->>中央目录: 5. 定位中央目录
+    Parser->>Parser: 6. 初始化文件计数器 = 0
 
-    Note over 解析器: 循环处理所有文件
+    Note over Parser: 循环处理所有文件
     loop 对于每个文件条目
-        解析器->>解析器: 7. 文件计数器 += 1
-        解析器->>CDH: 8. 读取Central Directory Header
-        CDH->>解析器: 返回文件元数据
-        解析器->>解析器: 9. 检查是否需要ZIP64扩展
+        Parser->>Parser: 7. 文件计数器 += 1
+        Parser->>CDH: 8. 读取Central Directory Header
+        CDH->>Parser: 返回文件元数据
+        Parser->>Parser: 9. 检查是否需要ZIP64扩展
         alt 需要ZIP64扩展
-            解析器->>CDH: 10. 提取ZIP64扩展信息
-            CDH->>解析器: 返回8字节大小和偏移量
+            Parser->>CDH: 10. 提取ZIP64扩展信息
+            CDH->>Parser: 返回8字节大小和偏移量
         end
 
-        Note over 解析器: 处理Local File Header
-        解析器->>LFH: 11. 根据CDH定位LFH
-        LFH->>解析器: 返回Local File Header数据
-        解析器->>解析器: 12. 验证LFH与CDH一致性
+        Note over Parser: 处理Local File Header
+        Parser->>LFH: 11. 根据CDH定位LFH
+        LFH->>Parser: 返回Local File Header数据
+        Parser->>Parser: 12. 验证LFH与CDH一致性
 
-        Note over 解析器: 处理文件数据
-        解析器->>文件数据: 13. 读取压缩文件数据
-        文件数据->>解析器: 返回文件数据
-        解析器->>解析器: 14. 解压/解密文件数据
+        Note over Parser: 处理文件数据
+        Parser->>文件数据: 13. 读取压缩文件数据
+        文件数据->>Parser: 返回文件数据
+        Parser->>Parser: 14. 解压/解密文件数据
 
         alt 存在Data Descriptor
-            解析器->>DD: 15. 读取Data Descriptor
-            DD->>解析器: 返回实际CRC和大小
-            解析器->>解析器: 16. 验证数据完整性
+            Parser->>DD: 15. 读取Data Descriptor
+            DD->>Parser: 返回实际CRC和大小
+            Parser->>Parser: 16. 验证数据完整性
         end
 
-        解析器->>解析器: 17. 存储文件信息
-        解析器->>解析器: 18. 检查是否还有更多文件
+        Parser->>Parser: 17. 存储文件信息
+        Parser->>Parser: 18. 检查是否还有更多文件
     end
 
-    Note over 解析器: 完成阶段
-    解析器->>解析器: 19. 生成完整文件列表
-    解析器->>解析器: 20. 验证所有文件完整性
-    解析器->>解析器: 21. 返回解析结果
+    Note over Parser: 完成阶段
+    Parser->>Parser: 19. 生成完整文件列表
+    Parser->>Parser: 20. 验证所有文件完整性
+    Parser->>Parser: 21. 返回解析结果
+```
+
+#### 启用中央目录加密时的解析流程
+
+```mermaid
+sequenceDiagram
+    participant Parser AS 解析器
+    participant User AS 用户
+    participant EOCD AS End of Central Directory
+    participant ZIP64Locator AS ZIP64 Locator
+    participant ZIP64EOCD AS ZIP64 End of Central Directory
+    participant ArchiveDH AS Archive Decryption Header
+    participant ArchiveExtra AS Archive Extra Data Record
+    participant EncryptedCD AS Encrypted Central Directory
+    participant CDH AS Central Directory Header
+    participant LFH AS Local File Header
+    participant FileData AS File Data
+
+    Note over Parser: 阶段1: 定位和读取目录结构
+    Parser->>EOCD: 1. 读取End of Central Directory
+    EOCD->>Parser: 返回EOCD数据
+    Parser->>Parser: 2. 检测ZIP64格式标志
+    Parser->>ZIP64Locator: 3. 读取ZIP64 Locator
+    ZIP64Locator->>Parser: 返回ZIP64 EOCD位置
+    Parser->>ZIP64EOCD: 4. 读取ZIP64 EOCD
+    ZIP64EOCD->>Parser: 返回完整目录信息(含加密标志)
+
+    Note over Parser: 阶段2: 检测中央目录加密
+    Parser->>Parser: 5. 检查general purpose bit flag 13
+    alt 中央目录已加密
+        Parser->>User: 6. 请求密码或证书
+        User->>Parser: 7. 提供密码/证书
+        Parser->>ArchiveDH: 8. 读取Archive Decryption Header
+        ArchiveDH->>Parser: 返回加密的解密头
+        Parser->>Parser: 9. 使用密码/证书解密ArchiveDH
+        ArchiveDH->>Parser: 返回解密后的解密头数据
+
+        Note over Parser: 阶段3: 解密中央目录
+        Parser->>EncryptedCD: 10. 读取加密的中央目录
+        EncryptedCD->>Parser: 返回加密的中央目录数据
+        Parser->>Parser: 11. 使用ArchiveDH中的密钥解密中央目录
+        EncryptedCD->>Parser: 返回解密后的中央目录
+
+        Note over Parser: 阶段4: 处理Archive Extra Data
+        Parser->>ArchiveExtra: 12. 读取Archive Extra Data Record
+        ArchiveExtra->>Parser: 返回额外数据(证书等)
+    else 中央目录未加密
+        Parser->>EncryptedCD: 8. 直接读取中央目录
+        EncryptedCD->>Parser: 返回未加密的中央目录
+    end
+
+    Note over Parser: 阶段5: 解析中央目录
+    Parser->>CDH: 13. 解析中央目录条目
+    CDH->>Parser: 返回文件元数据
+    Parser->>Parser: 14. 检查是否需要ZIP64扩展
+
+    Note over Parser: 阶段6: 解压文件数据
+    loop 对于每个文件
+        Parser->>LFH: 15. 根据CDH定位LFH
+        LFH->>Parser: 返回Local File Header
+        Parser->>Parser: 16. 验证LFH(注意掩码字段)
+        Parser->>FileData: 17. 读取文件数据
+        FileData->>Parser: 返回压缩/加密的文件数据
+        Parser->>Parser: 18. 解密/解压文件数据
+        Parser->>Parser: 19. 验证文件完整性
+        Parser->>Parser: 20. 输出解压后的文件
+    end
+
+    Note over Parser: 阶段7: 完成解压
+    Parser->>User: 21. 显示解压完成信息
+```
+
+#### 校验密码是否正确
+
+##### 传统PKWARE加密格式校验密码
+
+```mermaid
+sequenceDiagram
+    participant User as 用户
+    participant Parser as 解析器
+    participant ZIP as ZIP文件
+
+    User->>Parser: 提供密码
+    Parser->>ZIP: 读取Local File Header
+    ZIP->>Parser: 返回LFH数据 (包含加密标志)
+    Parser->>ZIP: 读取12字节加密头
+    ZIP->>Parser: 返回加密头数据
+
+    Parser->>Parser: 使用密码初始化加密密钥
+    Parser->>Parser: 解密12字节加密头
+
+    Parser->>ZIP: 读取文件CRC值
+    ZIP->>Parser: 返回文件CRC
+
+    Parser->>Parser: 提取解密后加密头的最后1/2字节
+    Parser->>Parser: 比较是否等于文件CRC的高位字节
+
+    alt 密码验证成功
+        Parser->>User: 密码验证成功
+        Parser->>ZIP: 继续读取文件数据
+        ZIP->>Parser: 返回文件数据
+        Parser->>Parser: 解密文件数据
+        Parser->>User: 解压完成
+    else 密码验证失败
+        Parser->>User: 密码验证失败
+        Parser->>User: 提示重新输入密码
+    end
+```
+
+##### 强加密
+
+```mermaid
+sequenceDiagram
+    participant User as 用户
+    participant Parser as 解析器
+    participant ZIP as ZIP文件
+
+    User->>Parser: 提供密码
+    Parser->>ZIP: 读取Local File Header
+    ZIP->>Parser: 返回LFH数据 (包含强加密标志)
+    Parser->>ZIP: 读取强加密解密头
+    ZIP->>Parser: 返回解密头数据 (IVSize, IVData, AlgID, VSize等)
+
+    Parser->>Parser: 解析解密头明文字段
+    Parser->>Parser: 使用密码和IVData生成主会话密钥
+
+    Parser->>ZIP: 读取ErdData字段
+    ZIP->>Parser: 返回ErdData
+
+    Parser->>Parser: 解密ErdData获取随机数据
+    Parser->>Parser: 生成文件会话密钥
+
+    Parser->>ZIP: 读取VData和VCRC32字段
+    ZIP->>Parser: 返回VData和VCRC32
+
+    Parser->>Parser: 使用会话密钥解密VData和VCRC32
+    Parser->>Parser: 计算解密后VData的CRC32
+    Parser->>Parser: 比较计算的CRC32与解密的VCRC32
+
+    alt 密码验证成功
+        Parser->>User: 密码验证成功
+        Parser->>ZIP: 读取文件数据
+        ZIP->>Parser: 返回文件数据
+        Parser->>Parser: 解密文件数据
+        Parser->>User: 解压完成
+    else 密码验证失败
+        Parser->>User: 密码验证失败
+        Parser->>User: 提示重新输入密码
+    end
+```
+
+##### 启用中央目录加密
+
+```mermaid
+sequenceDiagram
+    participant User as 用户
+    participant Parser as 解析器
+    participant ZIP as ZIP文件
+
+    Parser->>ZIP: 读取EOCD和ZIP64记录
+    ZIP->>Parser: 返回记录数据 (包含中央目录加密标志)
+
+    Parser->>User: 检测到中央目录加密，请提供密码
+    User->>Parser: 提供密码
+
+    Parser->>ZIP: 根据ZIP64记录定位Archive Decryption Header
+    ZIP->>Parser: 返回Archive Decryption Header
+
+    Parser->>Parser: 解析解密头明文字段
+    Parser->>Parser: 使用密码生成主会话密钥
+
+    Parser->>ZIP: 读取ErdData字段
+    ZIP->>Parser: 返回ErdData
+
+    Parser->>Parser: 解密ErdData获取随机数据
+    Parser->>Parser: 生成中央目录解密密钥
+
+    Parser->>ZIP: 读取VData和VCRC32字段
+    ZIP->>Parser: 返回VData和VCRC32
+
+    Parser->>Parser: 解密VData和VCRC32
+    Parser->>Parser: 验证VData的CRC32
+
+    alt 密码验证成功
+        Parser->>ZIP: 读取加密的中央目录
+        ZIP->>Parser: 返回加密的中央目录数据
+        Parser->>Parser: 解密中央目录
+        Parser->>Parser: 解析中央目录获取文件列表
+        Parser->>User: 显示文件列表
+        User->>Parser: 选择要解压的文件
+        Parser->>Parser: 继续解压选中的文件
+        Parser->>User: 解压完成
+    else 密码验证失败
+        Parser->>User: 密码验证失败，无法解密中央目录
+        Parser->>User: 无法显示文件列表，请重新输入密码
+    end
 ```
 
 ## Questions
 
-- 考虑加密的情况下，Zip文件结构会复杂很多，在后续工作中需要偏向考虑zip被加密的case嘛？
+- 考虑加密和Zip64的情况下，Zip文件结构会复杂很多，在后续工作中需要偏向考虑这两种case嘛？
 - 标准解析模式下，从文件尾部搜索EOCDR时，如果EOCDR中的extra field中如果出现一个完整的EOCDR，解析器会如何处理？
