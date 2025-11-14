@@ -137,6 +137,8 @@ sequenceDiagram
 [end of central directory record]
 ```
 
+![Zip文件结构图示](./pic/zip文件进阶结构.png)
+
 #### 本地文件头 - Local File Header
 
 ```cpp
